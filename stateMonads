@@ -1,0 +1,132 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Linq;
+
+// #map
+// #flatMap
+// .constant
+// .get
+// .sequence
+// Candy Machine
+
+namespace CodeRetreat0330 {
+  class Program {
+    static void Main(string[] args) {
+      int[] numbers = { 10, 2, 3, 4, 5 };
+
+      var aggNums = numbers.Aggregate(
+        0,
+        (praeitasRezultatas, dabartinisListoElementas) =>
+        praeitasRezultatas + dabartinisListoElementas
+      );
+      Console.WriteLine(aggNums);
+      Del myDel = _ => _ == 1;
+      Console.WriteLine(myDel(1));
+
+      var m = new Machine(true, 10, 10);
+      var inputList = new List<Input> { Input.Coin, Input.Turn, Input.Coin, Input.Turn };
+      var simulation = Machine.simulateMachine(inputList);
+      Console.WriteLine(simulation(m).Item2.ToString());
+      Console.WriteLine(Machine.simulateMachine(inputList)(m).Item2.ToString());
+
+      var t = nextInt(100);
+      Console.WriteLine(t.Item2.ToString());
+      t = nextPositiveInt(t.Item1);
+      Console.WriteLine(t.Item2.ToString());
+      var t2 = nextInt(t.Item1);
+      Console.WriteLine(t2.Item2.ToString());
+      var t3 = nextDouble(t2.Item1);
+      Console.WriteLine(t3.ToString());
+      var t4 = nextIntDouble(t2.Item1);
+      Console.WriteLine(t4.ToString());
+    }
+
+    static readonly StateFn<long, int> nextInt = _nextInt;
+
+    public static Tuple<long, int> _nextInt(long seed) {
+      var newSeed = (seed * 0x5DEECE66DL + 0xBL) & 0xFFFFFFFFFFFFL;
+      var n = (int)(newSeed >> 16);
+      return TupleExts.create(newSeed, n);
+    }
+
+    static readonly StateFn<long, int> nextPositiveInt = nextInt.map(val => (int)(uint)val % int.MaxValue);
+
+    static readonly StateFn<long, double> nextDouble =
+      nextPositiveInt.map(val => val / (double)int.MaxValue % 1);
+
+    static readonly StateFn<long, Tuple<int, double>> nextIntDouble =
+      nextInt.flatMap(intVal => nextDouble.map(doubleVal => TupleExts.create(intVal, doubleVal)));
+  }
+  public delegate Tuple<S, A> StateFn<S, A>(S a);
+
+  public delegate bool Del(int i);
+  public static class TupleExts {
+    public static Tuple<A, B> create<A, B>(A a, B b) => new Tuple<A, B>(a, b);
+  }
+
+  public static class StateExts {
+    public static StateFn<S, B> map<S, A, B>(this StateFn<S, A> stateFunc, Func<A, B> mapFunc) =>
+      s => {
+        var generatedState = stateFunc(s);
+        return new Tuple<S, B>(generatedState.Item1, mapFunc(generatedState.Item2));
+      };
+
+    public static StateFn<S, B> flatMap<S, A, B>(this StateFn<S, A> stateFunc, Func<A, StateFn<S, B>> flatMapFunc) =>
+      s => {
+        var generatedState = stateFunc(s);
+        var stateFnB = flatMapFunc(generatedState.Item2);
+        return stateFnB(generatedState.Item1);
+      };
+
+    public static StateFn<S, A> constant<S, A>(A a) => s => TupleExts.create(s, a);
+
+    public static StateFn<S, S> get<S>() => s => TupleExts.create(s, s);
+
+    public static StateFn<S, ImmutableList<A>> sequence<S, A>(this IEnumerable<StateFn<S, A>> states) =>
+      states.Aggregate(
+        constant<S, ImmutableList<A>>(ImmutableList<A>.Empty),
+        (aggregatedStateFn, stateFn) => aggregatedStateFn.flatMap(result => stateFn.map(result.Add))
+        );
+  }
+
+  public enum Input { Coin, Turn }
+
+  public struct Unit { }
+
+  public struct Machine {
+    public readonly bool locked;
+    public readonly int coins, candies;
+
+    public Machine(bool locked, int coins, int candies) {
+      this.locked = locked;
+      this.coins = coins;
+      this.candies = candies;
+    }
+
+    Tuple<Machine, Unit> toResult => new Tuple<Machine, Unit>(this, new Unit());
+
+    public static StateFn<Machine, Unit> addCoin = m => {
+      if (m.locked && m.candies > 0) {
+        return new Machine(false, m.coins + 1, m.candies).toResult;
+      }
+      return m.toResult;
+    };
+
+    public static StateFn<Machine, Unit> turn = m => {
+      if (!m.locked && m.candies > 0) {
+        return new Machine(true, m.coins, m.candies - 1).toResult;
+      }
+      return m.toResult;
+    };
+
+    public static IEnumerable<StateFn<Machine, Unit>> toStates(IEnumerable<Input> inputs) =>
+      inputs.Select(input => input == Input.Coin ? addCoin : turn);
+
+    public static StateFn<Machine, Tuple<int, int>> simulateMachine(IEnumerable<Input> inputs) =>
+      toStates(inputs)
+        .sequence()
+        .flatMap(_ => StateExts.get<Machine>())
+        .map(state => TupleExts.create(state.coins, state.candies));
+  }
+}
